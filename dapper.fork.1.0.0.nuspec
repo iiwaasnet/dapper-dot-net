@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/01/nuspec.xsd">
+    <metadata>
+        <id>dapper.fork</id>
+        <version>1.0.0</version>
+        <title>Dapper.Fork</title>
+        <authors>iiwaasnet</authors>
+        <owners />
+        <projectUrl>https://github.com/iiwaasnet/dapper-dot-net</projectUrl>
+        <requireLicenseAcceptance>false</requireLicenseAcceptance>
+        <description>Fork of Dapper micro-ORM</description>
+        <releaseNotes>- Query&lt;&gt;() returns empty sequence in case of no SELECT statement was executed
+ - Added GridConsumed property to GridReader</releaseNotes>
+        <references>
+            <group targetFramework=".NETFramework4.5" />
+            <group targetFramework=".NETFramework4.0" />
+            <group targetFramework=".NETFramework3.5" />
+        </references>
+    </metadata>
+    <files>
+        <file src="Dapper NET45\bin\Release\Dapper.dll" target="Dapper.dll" />
+        <file src="Dapper NET45\bin\Release\Dapper.pdb" target="Dapper.pdb" />
+    </files>
+</package>
