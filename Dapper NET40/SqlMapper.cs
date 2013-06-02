@@ -2172,7 +2172,7 @@ Type type, IDataReader reader, int startBound = 0, int length = -1, bool returnN
                 length = reader.FieldCount - startBound;
             }
 
-            if (reader.FieldCount <= startBound)
+			if (reader.FieldCount <= startBound && !EmptyResultSet(reader))
             {
                 throw new ArgumentException("When using the multi-mapping APIs ensure you set the splitOn param if you have keys other than Id", "splitOn");
             }
@@ -2468,7 +2468,12 @@ Type type, IDataReader reader, int startBound = 0, int length = -1, bool returnN
             return (Func<IDataReader, object>)dm.CreateDelegate(typeof(Func<IDataReader, object>));
         }
 
-        private static void LoadLocal(ILGenerator il, int index)
+	    private static bool EmptyResultSet(IDataReader reader)
+	    {
+		    return reader.FieldCount == 0;
+	    }
+
+	    private static void LoadLocal(ILGenerator il, int index)
         {
             if (index < 0 || index >= short.MaxValue) throw new ArgumentNullException("index");
             switch (index)
@@ -2605,12 +2610,14 @@ Type type, IDataReader reader, int startBound = 0, int length = -1, bool returnN
             private IDataReader reader;
             private IDbCommand command;
             private Identity identity;
+	        private bool gridConsumed;
 
             internal GridReader(IDbCommand command, IDataReader reader, Identity identity)
             {
                 this.command = command;
                 this.reader = reader;
                 this.identity = identity;
+	            gridConsumed = false;
             }
 
 #if !CSHARP30
@@ -2810,6 +2817,7 @@ Type type, IDataReader reader, int startBound = 0, int length = -1, bool returnN
                 {
                     // happy path; close the reader cleanly - no
                     // need for "Cancel" etc
+	                gridConsumed = true;
                     reader.Dispose();
                     reader = null;
 
@@ -2817,7 +2825,16 @@ Type type, IDataReader reader, int startBound = 0, int length = -1, bool returnN
                 }
 
             }
-            /// <summary>
+
+			/// <summary>
+			/// Returns true, if all datasets of the grid are read with one of the Read() methods. Otherwise, false.
+			/// </summary>
+			public bool GridConsumed
+			{
+				get { return gridConsumed;}
+			}
+
+	        /// <summary>
             /// Dispose the grid, closing and disposing both the underlying reader and command.
             /// </summary>
             public void Dispose()

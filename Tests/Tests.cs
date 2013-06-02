@@ -12,7 +12,6 @@ using System.Reflection;
 using System.Dynamic;
 using System.ComponentModel;
 using Microsoft.CSharp.RuntimeBinder;
-using System.Data.Common;
 #if POSTGRESQL
 using Npgsql;
 #endif
@@ -960,6 +959,46 @@ Order by p.Id";
             Assert.IsEqualTo(s, "abc");
             Assert.IsEqualTo(j, 3);
         }
+
+		//NOTE: custome changes
+		public void TestShortCircuitedSelect_ReturnsEmptySequence()
+		{
+			var sql = @"IF (1 = 2) begin  select 1 as Id, 'Product' as Name end";
+			var products = connection.Query<Product>(sql);
+			
+			products.Any().IsFalse();
+		}
+
+		//NOTE: custome changes
+		public void TestShortCircuitedMultiReader_ReturnsEmptySequence()
+		{
+			//var sql = @"select 1 as Id union all select 2 as Id     select 'abc' as name   select 1 as Id union all select 2 as Id";
+			var sql = @"IF (1 = 2) begin  select 1 as Id, 'Product' as Name end";
+			
+			using (var multi = connection.QueryMultiple(sql))
+			{
+				var product = multi.Read<Product>();
+
+				product.Any().IsFalse();
+			}
+		}
+		
+		//NOTE: custome changes
+		public void TestNextReaderAvailable()
+		{
+			//var sql = @"select 1 as Id union all select 2 as Id     select 'abc' as name   select 1 as Id union all select 2 as Id";
+			var sql = @"IF (1 = 2) begin  select 1 as Id, 'Product' as Name end";
+			
+			using (var multi = connection.QueryMultiple(sql))
+			{
+				multi.GridConsumed.IsFalse();
+
+				var product = multi.Read<Product>();
+
+				multi.GridConsumed.IsTrue();
+			}
+		}
+
         public void TestMultiMappingVariations()
         {
             var sql = @"select 1 as Id, 'a' as Content, 2 as Id, 'b' as Content, 3 as Id, 'c' as Content, 4 as Id, 'd' as Content, 5 as Id, 'e' as Content";
@@ -1613,36 +1652,6 @@ Order by p.Id";
 
             connection.Execute("drop table #Users drop table #Posts drop table #Comments");
         }
-
-        public class DbParams : Dapper.SqlMapper.IDynamicParameters, IEnumerable<IDbDataParameter>
-        {
-            private readonly List<IDbDataParameter> parameters = new List<IDbDataParameter>();
-            public IEnumerator<IDbDataParameter> GetEnumerator() { return parameters.GetEnumerator(); }
-            IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
-            public void Add(IDbDataParameter value)
-            {
-                parameters.Add(value);
-            }
-            void Dapper.SqlMapper.IDynamicParameters.AddParameters(IDbCommand command,
-                Dapper.SqlMapper.Identity identity)
-            {
-                foreach (IDbDataParameter parameter in parameters)
-                    command.Parameters.Add(parameter);
-            }
-        }
-        public void TestCustomParameters()
-        {
-            var args = new DbParams {
-                new SqlParameter("foo", 123),
-                new SqlParameter("bar", "abc")
-            };
-            var result = connection.Query("select Foo=@foo, Bar=@bar", args).Single();
-            int foo = result.Foo;
-            string bar = result.Bar;
-            foo.IsEqualTo(123);
-            bar.IsEqualTo("abc");
-        }
-
 
         public void TestReadDynamicWithGridReader()
         {
