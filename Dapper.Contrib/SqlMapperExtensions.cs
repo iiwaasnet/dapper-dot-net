@@ -11,6 +11,8 @@ using System.Threading;
 using System.Runtime.CompilerServices;
 using Dapper;
 
+#pragma warning disable 1573, 1591 // xml comments
+
 namespace Dapper.Contrib.Extensions
 {
 
@@ -23,14 +25,28 @@ namespace Dapper.Contrib.Extensions
 
         private static readonly ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>> KeyProperties = new ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>>();
         private static readonly ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>> TypeProperties = new ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>>();
+		private static readonly ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>> ComputedProperties = new ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>>(); 
         private static readonly ConcurrentDictionary<RuntimeTypeHandle, string> GetQueries = new ConcurrentDictionary<RuntimeTypeHandle, string>();
         private static readonly ConcurrentDictionary<RuntimeTypeHandle, string> TypeTableName = new ConcurrentDictionary<RuntimeTypeHandle, string>();
 
 		private static readonly Dictionary<string, ISqlAdapter> AdapterDictionary = new Dictionary<string, ISqlAdapter>() {
 																							{"sqlconnection", new SqlServerAdapter()},
-																							{"npgsqlconnection", new PostgresAdapter()}
+																							{"npgsqlconnection", new PostgresAdapter()},
+																							{"sqliteconnection", new SQLiteAdapter()}
 																						};
+		private static IEnumerable<PropertyInfo> ComputedPropertiesCache(Type type)
+		{
+			IEnumerable<PropertyInfo> pi;
+			if (ComputedProperties.TryGetValue(type.TypeHandle, out pi))
+			{
+				return pi;
+			}
 
+			var computedProperties = TypePropertiesCache(type).Where(p => p.GetCustomAttributes(true).Any(a => a is ComputedAttribute)).ToList();
+
+			ComputedProperties[type.TypeHandle] = computedProperties;
+			return computedProperties;
+		}
         private static IEnumerable<PropertyInfo> KeyPropertiesCache(Type type)
         {
 
@@ -63,7 +79,7 @@ namespace Dapper.Contrib.Extensions
                 return pis;
             }
 
-            var properties = type.GetProperties().Where(IsWriteable);
+            var properties = type.GetProperties().Where(IsWriteable).ToArray();
             TypeProperties[type.TypeHandle] = properties;
             return properties;
         }
@@ -175,22 +191,23 @@ namespace Dapper.Contrib.Extensions
 
 			var allProperties = TypePropertiesCache(type);
             var keyProperties = KeyPropertiesCache(type);
-            var allPropertiesExceptKey = allProperties.Except(keyProperties);
+			var computedProperties = ComputedPropertiesCache(type);
+			var allPropertiesExceptKeyAndComputed = allProperties.Except(keyProperties.Union(computedProperties));
 
-            for (var i = 0; i < allPropertiesExceptKey.Count(); i++)
+            for (var i = 0; i < allPropertiesExceptKeyAndComputed.Count(); i++)
             {
-                var property = allPropertiesExceptKey.ElementAt(i);
+                var property = allPropertiesExceptKeyAndComputed.ElementAt(i);
 				sbColumnList.AppendFormat("[{0}]", property.Name);
-                if (i < allPropertiesExceptKey.Count() - 1)
+                if (i < allPropertiesExceptKeyAndComputed.Count() - 1)
 					sbColumnList.Append(", ");
             }
 
 			var sbParameterList = new StringBuilder(null);
-			for (var i = 0; i < allPropertiesExceptKey.Count(); i++)
+			for (var i = 0; i < allPropertiesExceptKeyAndComputed.Count(); i++)
             {
-                var property = allPropertiesExceptKey.ElementAt(i);
+                var property = allPropertiesExceptKeyAndComputed.ElementAt(i);
                 sbParameterList.AppendFormat("@{0}", property.Name);
-                if (i < allPropertiesExceptKey.Count() - 1)
+                if (i < allPropertiesExceptKeyAndComputed.Count() - 1)
                     sbParameterList.Append(", ");
             }
 			ISqlAdapter adapter = GetFormatter(connection);
@@ -225,7 +242,8 @@ namespace Dapper.Contrib.Extensions
             sb.AppendFormat("update {0} set ", name);
 
             var allProperties = TypePropertiesCache(type);
-            var nonIdProps = allProperties.Where(a => !keyProperties.Contains(a));
+            var computedProperties = ComputedPropertiesCache(type);
+            var nonIdProps = allProperties.Except(keyProperties.Union(computedProperties));
 
             for (var i = 0; i < nonIdProps.Count(); i++)
             {
@@ -279,6 +297,23 @@ namespace Dapper.Contrib.Extensions
             var deleted = connection.Execute(sb.ToString(), entityToDelete, transaction: transaction, commandTimeout: commandTimeout);
             return deleted > 0;
         }
+
+
+        /// <summary>
+        /// Delete all entities in the table related to the type T.
+        /// </summary>
+        /// <typeparam name="T">Type of entity</typeparam>
+        /// <param name="connection">Open SqlConnection</param>
+        /// <returns>true if deleted, false if none found</returns>
+        public static bool DeleteAll<T>(this IDbConnection connection, IDbTransaction transaction = null, int? commandTimeout = null) where T : class
+        {
+            var type = typeof(T);
+            var name = GetTableName(type);
+            var statement = String.Format("delete from {0}", name);
+            var deleted = connection.Execute(statement, null, transaction: transaction, commandTimeout: commandTimeout);
+            return deleted > 0;
+        }
+
 
 		public static ISqlAdapter GetFormatter(IDbConnection connection)
 		{
@@ -472,6 +507,11 @@ namespace Dapper.Contrib.Extensions
         }
         public bool Write { get; private set; }
 	}
+
+	[AttributeUsage(AttributeTargets.Property)]
+	public class ComputedAttribute : Attribute
+	{
+	}
 }
 
 public interface ISqlAdapter
@@ -532,4 +572,23 @@ public class PostgresAdapter : ISqlAdapter
 		}
 		return id;
 	}
+}
+
+public class SQLiteAdapter : ISqlAdapter
+{
+	public int Insert(IDbConnection connection, IDbTransaction transaction, int? commandTimeout, String tableName, string columnList, string parameterList, IEnumerable<PropertyInfo> keyProperties, object entityToInsert)
+	{
+		string cmd = String.Format("insert into {0} ({1}) values ({2})", tableName, columnList, parameterList);
+
+		connection.Execute(cmd, entityToInsert, transaction: transaction, commandTimeout: commandTimeout);
+
+		var r = connection.Query("select last_insert_rowid() id", transaction: transaction, commandTimeout: commandTimeout);
+		int id = (int)r.First().id;
+		if (keyProperties.Any())
+			keyProperties.First().SetValue(entityToInsert, id, null);
+		return id;
+	}
+
+
+
 }

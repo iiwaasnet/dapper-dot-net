@@ -2,11 +2,13 @@
 using System.Data.SqlClient;
 using System.Reflection;
 using System.Linq;
+using System.Collections.Generic;
+
 namespace SqlMapper
 {
     [ServiceStack.DataAnnotations.Alias("Posts")]
 	[Soma.Core.Table(Name = "Posts")]
-    class Post
+    public class Post
     {
 		[Soma.Core.Id(Soma.Core.IdKind.Identity)]
         public int Id { get; set; }
@@ -28,11 +30,12 @@ namespace SqlMapper
     class Program
     {
 
-        public static readonly string connectionString = "Data Source=.;Initial Catalog=tempdb;Integrated Security=True";
+        public const string ConnectionString = "Data Source=.;Initial Catalog=tempdb;Integrated Security=True",
+            OleDbConnectionString = "Provider=SQLOLEDB;Data Source=.;Initial Catalog=tempdb;Integrated Security=SSPI";
 
         public static SqlConnection GetOpenConnection()
         {
-            var connection = new SqlConnection(connectionString);
+            var connection = new SqlConnection(ConnectionString);
             connection.Open();
             return connection;
         }
@@ -115,6 +118,7 @@ end
             MethodInfo[] methods = typeof(Tests).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
             var activeTests = methods.Where(m => Attribute.IsDefined(m, typeof(ActiveTestAttribute))).ToArray();
             if (activeTests.Length != 0) methods = activeTests;
+            List<string> failNames = new List<string>();
             foreach (var method in methods)
             {
                 Console.Write("Running " + method.Name);
@@ -126,6 +130,7 @@ end
                 {
                     fail++;
                     Console.WriteLine(" - " + tie.InnerException.Message);
+                    failNames.Add(method.Name);
                     
                 }catch (Exception ex)
                 {
@@ -141,6 +146,10 @@ end
             else
             {
                 Console.WriteLine("#### FAILED: {0}", fail);
+                foreach(var failName in failNames)
+                {
+                    Console.WriteLine(failName);
+                }
             }
         }
     }
