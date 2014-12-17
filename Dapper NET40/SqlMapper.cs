@@ -3549,7 +3549,7 @@ Type type, IDataReader reader, int startBound = 0, int length = -1, bool returnN
                 length = reader.FieldCount - startBound;
             }
 
-			if (reader.FieldCount <= startBound && !EmptyResultSet(reader))
+			if (reader.FieldCount <= startBound)
             {
                 throw MultiMapException(reader);
             }
